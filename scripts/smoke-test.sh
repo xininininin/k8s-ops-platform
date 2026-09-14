@@ -36,7 +36,7 @@ kubectl auth can-i patch deployments.apps --as="system:serviceaccount:${namespac
 pass "ServiceAccount and RBAC checks"
 
 deadline=$((SECONDS + 60))
-until agent_logs="$(kubectl -n "$namespace" logs deployment/diagnosis-agent --since=5m 2>/dev/null)" && grep 'diagnosis agent started' <<<"$agent_logs" >/dev/null; do
+until agent_logs="$(kubectl -n "$namespace" logs deployment/diagnosis-agent 2>/dev/null)" && grep 'diagnosis agent started' <<<"$agent_logs" >/dev/null; do
   (( SECONDS < deadline )) || fail "Agent did not confirm informer cache startup"
   sleep 2
 done
