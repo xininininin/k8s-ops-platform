@@ -1570,3 +1570,35 @@ Helm 升级创建 ServiceMonitor 后等待 50 s，Prometheus 仍为 21/21 target
 - 终态健康：`final-health.txt`
 - 验收：`checkpoint5-validation.yaml`
 - 本文件快照（云端只读副本）：`TROUBLESHOOTING-snapshot.md`（本地 `TROUBLESHOOTING.md` 为唯一可编辑源）
+
+## Checkpoint 6：CI/CD Failure Detection & Helm Rollback
+
+### 现象与影响
+
+V2 正常发布为 Helm revision 5，两个 Deployment rollout 成功。V3 revision 6 仅把 Agent readiness path 改为 `/checkpoint6-bad-readiness`；新 Agent Pod 为 `Running`、restartCount=0，但 kubelet 持续记录 `Readiness probe failed: HTTP probe failed with statuscode: 404`，Pod `Ready=False`。30 秒 rollout 观察超时，10 秒 smoke 观察失败于 “Agent Deployment is not Ready”。旧 V2 Agent 继续为 Service 提供 endpoint，所以 V3 窗口业务探针 251/251 成功。
+
+### 根因与诊断
+
+Helm values 中的错误 path 与进程真实提供的 `/healthz` 不一致。Readiness 失败不会杀死容器（liveness 仍访问正确路径），只会阻止该 Pod 成为可服务 endpoint，并让 RollingUpdate 保留旧副本。权威失败时间来自 Agent Pod 的首条 Unhealthy Event，而不是 Pod 初始的 Ready=False condition。
+
+实测：ReadinessFailureLatency `2.351479336s`；RolloutFailureLatency `31.875021933s`；SmokeFailureLatency `42.020416028s`；PrometheusDetectionLatency `9.365916780s`。Prometheus 看到 `kube_pod_status_ready{condition="true"}=0`；既有告警没有进入 pending/firing，Alertmanager 保持 0 active。
+
+Agent 没有输出 DeploymentReplicasUnavailable，AgentDetectionLatency 为 N/A。默认 RollingUpdate 让旧副本保持 `availableReplicas=1`，与 `spec.replicas=1` 相等，因此 Deployment detector 的规则条件从未满足；新 Agent 本身仍完成 informer sync。恢复后 `k8s_ops_active_diagnosis{reason="DeploymentReplicasUnavailable"}=0`。
+
+### 修复、回滚与恢复验证
+
+现场保存后调用现有 `scripts/rollback.sh k8s-ops-platform k8s-ops 5`，没有 uninstall、delete Deployment 或 reinstall。Helm revision 7 记录 `Rollback to 5`，7.559499574s 内两个 Deployment rollout 成功。最终 smoke 验证 Agent/Controller Ready、CRD discovery、RBAC、真实 Action、Agent health/metrics/state 和 Controller healthz/readyz；Prometheus 23/23 UP，Alertmanager 0 active，3 Nodes Ready，三台 failed units 均为 0。
+
+`TotalRecoveryTime=253.682473856s` 以坏发布开始到最终 smoke PASS 计算，包含保存现场和修正 smoke harness 假阴性的时间。全实验 HTTP 探针成功率 99.908257%（1089/1090）；唯一一次失败发生在 V2 rollout，单请求超时 2.002049s。精确 ServiceDowntime 在 1 秒采样下不可得，成功样本给出的中断窗口上界为 4.023139s；V3 窗口 ServiceDowntime 为 0 个失败样本。
+
+### 实验中发现的测试基础设施问题
+
+1. 本机没有 Helm CLI：第一次组合 CI 的 `helm lint` 真实失败。最终在 sre-master 用 Helm 4.3.0 对从本地复制的完全相同 chart 执行 lint；本机 `make ci` 与远端 lint 总耗时 6.360710998s。Remote GitHub Actions 未验证。
+2. smoke workload 使用 `registry.k8s.io/pause:3.10`，节点无缓存且访问 registry 超时，造成 ErrImagePull 假失败。改为节点已有且与集群 sandbox 版本一致的 `pause:3.10.1`。
+3. 回滚复用启动超过 5 分钟的健康 V2 Pod，smoke 的 `logs --since=5m` 查不到启动标记而误报。改为检查当前 Deployment Pod 的完整启动日志。
+4. cleanup 混写资源类型导致临时 Action/Deployment 未删除，且错误被 `|| true` 隐藏。改用 `action/cicd-smoke deployment/cicd-smoke` 显式资源引用，并验证最终无残留。
+5. 初版证据脚本按共享 tag 子串误选 Controller Pod；权威时间改用 Agent label 与首条 Unhealthy Event，错误记录保留并追加 correction，未篡改现场。
+
+### 已知限制与证据路径
+
+本项目仍是单 control-plane、Alertmanager 单副本、无 Loki；KSM 双副本仍会产生重复 series；Agent 不是完整 RCA；自动 Action 未开启；GitHub/GHCR 未验证，当前闭环不等同于生产发布平台。证据目录：`/opt/sre-lab/experiments/06-cicd/`，其中 `v3-bad-release.txt`、`rollout-failure.txt`、`smoke-failure.txt`、`agent-observation.txt`、`prometheus-observation.txt`、`rollback.txt`、`service-probe.log` 和 `final-health.txt` 为核心原始证据。

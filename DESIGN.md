@@ -182,3 +182,15 @@ Kind CD 是短生命周期、可重复创建的发布验收，验证 Kubernetes 
 | 11 | 单节点 Kind + Helm deploy + rollout + `make smoke-test` | 通过（exit 0；两个 Deployment Ready、CRD discovery、SA/RBAC、Agent informer、真实 DeploymentRestart Action、healthz/metrics 均通过）。首次运行发现 API discovery 返回完整资源名并修正断言后重跑通过。 |
 | 11 | Helm upgrade revision 2 + `make rollback PREVIOUS_REVISION=1` | 通过（exit 0；生成 revision 3 `Rollback to 1`，Agent/Controller rollout 再次通过） |
 | 11 | `make kind-up KIND_CLUSTER=k8s-ops-cicd` + `make e2e` | 三节点动态验收受环境阻塞：control-plane 可启动，但两个 worker join 持续挂起且 kube-proxy/CNI 不健康；原 `k8s-ops` 集群又因旧控制面证书 NotBefore 晚于当前 UTC 而无法 reconcile。单节点不具备 NodeMaintenance E2E 所需 worker，因此本次未执行 E2E，也未标记为通过。 |
+
+## 24. Checkpoint 6：发布失败检测与 Helm 回滚
+
+发布模型固定为 V1/V2/V3：V1 是 Checkpoint 5 健康基线（Helm revision 4）；V2 增加只读构建身份响应头并把 Agent readiness path 参数化，使用 SHA 派生的不可变镜像 tag 发布为 revision 5；V3 不改 detector，只通过 Helm values 将 readiness path 指向不存在的路径，发布为 revision 6。两个 V3 进程均正常，只有 Agent readiness 失败，因此故障面严格限制在平台自身。
+
+Agent `/healthz` 的 `X-K8s-Ops-Version` 与 `X-K8s-Ops-Source` 由 Docker build args 经 linker flags 注入；本地构建仍使用 `dev`/`local` 默认值。这个标识只提供制品追踪，不参与健康判断。chart 的 `agent.readinessProbe.path/port` 默认仍为 `/healthz` 和 `metrics`，V3 的坏路径只存在于 Helm revision 6 values 中。
+
+V3 证明 `Running` 只表示容器进程存在，`Ready=False` 才决定 EndpointSlice endpoint 是否可服务。默认 RollingUpdate 保留了 V2 的 Ready Agent，因而 Service 在 V3 窗口 251/251 请求成功、Deployment `availableReplicas` 仍等于期望值 1。其结果是现有 DeploymentReplicasUnavailable detector 没有输出：这不是漏掉一条已满足规则的事件，而是该规则的输入条件没有成立。Prometheus 的 Pod readiness 指标则在 9.365916780s 明确变为 0，展示了 Agent 的资源语义诊断与 Prometheus 时序状态检测之间的差异。
+
+Rollback 指向历史 revision 5，但 Helm 把“把 revision 5 的 manifest/values 重新应用”记录为一个新的 release 操作，所以历史增长到 revision 7，而不是把当前 revision 数字倒退到 5。revision 6 保留为可审计的 superseded 坏版本。恢复后 Agent/Controller Ready、Agent active diagnosis=0、Prometheus 23/23、Alertmanager 0 active。
+
+这不是生产级自动回滚：实验由人工保存现场、判定失败并调用脚本；没有 progressive delivery controller、SLO/error-budget gate、审批、签名/SBOM、策略准入、数据库兼容验证、多集群编排或自动停止/回滚控制。GitHub Actions 与 GHCR 只有配置，因本地无 remote 未真实验证。
