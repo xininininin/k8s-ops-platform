@@ -23,6 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	api "github.com/example/k8s-ops-platform/api/v1alpha1"
+	"github.com/example/k8s-ops-platform/internal/buildinfo"
 	"github.com/example/k8s-ops-platform/internal/diagnosis"
 	deploymentdiagnosis "github.com/example/k8s-ops-platform/internal/diagnosis/deployment"
 	nodediagnosis "github.com/example/k8s-ops-platform/internal/diagnosis/node"
@@ -180,7 +181,11 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-K8s-Ops-Version", buildinfo.Version)
+		w.Header().Set("X-K8s-Ops-Source", buildinfo.Source)
+		w.WriteHeader(http.StatusOK)
+	})
 	// /state is the agent's own answer to "what cluster state have you actually
 	// received?", so cache contents can be verified without kubectl.
 	mux.HandleFunc("/state", func(w http.ResponseWriter, _ *http.Request) {

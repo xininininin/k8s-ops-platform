@@ -9,6 +9,9 @@ agent:
   replicaCount: null
   image:
     repository: k8s-ops-platform-agent
+  readinessProbe:
+    path: /healthz
+    port: metrics
   args:
     - --metrics-bind-address=:8080
     - --auto-pod-restart=false

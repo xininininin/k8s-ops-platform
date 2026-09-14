@@ -31,7 +31,12 @@ spec:
             {{- toYaml .Values.agent.args | nindent 12 }}
           ports:
             - {name: metrics, containerPort: 8080}
-          readinessProbe: {httpGet: {path: /healthz, port: metrics}, initialDelaySeconds: 2, periodSeconds: 5}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.agent.readinessProbe.path | quote }}
+              port: {{ .Values.agent.readinessProbe.port }}
+            initialDelaySeconds: 2
+            periodSeconds: 5
           livenessProbe: {httpGet: {path: /healthz, port: metrics}, initialDelaySeconds: 5, periodSeconds: 10}
           securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}, readOnlyRootFilesystem: true}
           resources:
