@@ -3,6 +3,7 @@ set -euo pipefail
 
 namespace="${1:-k8s-ops-platform}"
 timeout="${SMOKE_TIMEOUT:-180s}"
+smoke_workload_image="${SMOKE_WORKLOAD_IMAGE:-registry.k8s.io/pause:3.10.1}"
 smoke_name="cicd-smoke"
 port_forward_pids=()
 
@@ -56,7 +57,7 @@ spec:
     spec:
       containers:
         - name: web
-          image: registry.k8s.io/pause:3.10
+          image: ${smoke_workload_image}
 EOF
 kubectl -n default rollout status deployment/"$smoke_name" --timeout="$timeout" || fail "smoke workload is not Ready"
 kubectl -n default apply -f - <<EOF
@@ -95,5 +96,18 @@ check_endpoint() {
 
 check_endpoint diagnosis-agent 18080 /healthz
 check_endpoint diagnosis-agent 18080 /metrics
+check_endpoint diagnosis-agent 18080 /state
 check_endpoint action-controller 18081 /metrics
+
+kubectl -n "$namespace" port-forward deployment/action-controller 18082:8081 >"/tmp/action-controller-health-smoke-port-forward.log" 2>&1 &
+health_pid=$!
+port_forward_pids+=("$health_pid")
+health_deadline=$((SECONDS + 30))
+until curl -fsS "http://127.0.0.1:18082/healthz" >/dev/null 2>&1 && curl -fsS "http://127.0.0.1:18082/readyz" >/dev/null 2>&1; do
+  (( SECONDS < health_deadline )) || fail "action-controller healthz/readyz is unreachable"
+  sleep 1
+done
+kill "$health_pid" 2>/dev/null || true
+wait "$health_pid" 2>/dev/null || true
+pass "action-controller/healthz and /readyz reachable"
 echo "SMOKE TEST PASSED"
