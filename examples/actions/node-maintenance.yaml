@@ -1,0 +1,12 @@
+apiVersion: ops.example.io/v1alpha1
+kind: Action
+metadata:
+  name: maintain-example-node
+  namespace: default
+spec:
+  actionType: NodeMaintenance
+  target: {kind: Node, name: replace-me}
+  reason: operator-requested maintenance
+  timeoutSeconds: 600
+  requestedBy: example-user
+  triggerSource: Manual

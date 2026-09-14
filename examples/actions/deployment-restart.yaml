@@ -1,0 +1,12 @@
+apiVersion: ops.example.io/v1alpha1
+kind: Action
+metadata:
+  name: restart-example-deployment
+  namespace: default
+spec:
+  actionType: DeploymentRestart
+  target: {kind: Deployment, namespace: default, name: replace-me}
+  reason: operator-requested rollout
+  timeoutSeconds: 300
+  requestedBy: example-user
+  triggerSource: Manual

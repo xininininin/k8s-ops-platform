@@ -1,0 +1,18 @@
+FROM golang:1.24 AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/action-controller ./cmd/action-controller
+
+FROM gcr.io/distroless/static-debian12:nonroot
+ARG VERSION=dev
+ARG SOURCE=https://github.com/example/k8s-ops-platform
+LABEL org.opencontainers.image.title="k8s-ops-platform action controller" \
+      org.opencontainers.image.description="Auditable Kubernetes action controller" \
+      org.opencontainers.image.source="${SOURCE}" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.licenses="Apache-2.0"
+COPY --from=builder /out/action-controller /action-controller
+USER 65532:65532
+ENTRYPOINT ["/action-controller"]

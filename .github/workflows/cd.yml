@@ -1,0 +1,125 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Deployment target
+        required: true
+        default: kind
+        type: choice
+        options: [kind, production]
+      image_tag:
+        description: Published immutable tag, for example sha-0123456789ab
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: cd-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  kind:
+    name: Kind release verification
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'kind')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      - name: Install Kind
+        uses: helm/kind-action@v1
+        with:
+          install_only: true
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+      - name: Resolve release image
+        id: image
+        shell: bash
+        env:
+          REQUESTED_IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          repository="${GITHUB_REPOSITORY,,}"
+          if [[ "$GITHUB_EVENT_NAME" == workflow_run ]]; then
+            image_tag="sha-${{ github.event.workflow_run.head_sha }}"
+            image_tag="${image_tag:0:16}"
+          else
+            image_tag="$REQUESTED_IMAGE_TAG"
+          fi
+          [[ "$image_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]
+          echo "prefix=ghcr.io/${repository}" >> "$GITHUB_OUTPUT"
+          echo "tag=${image_tag}" >> "$GITHUB_OUTPUT"
+      - name: Pull released images
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: make docker-pull IMAGE_PREFIX="${{ steps.image.outputs.prefix }}" TAG="${{ steps.image.outputs.tag }}"
+      - name: Start Kind and load release images
+        run: |
+          make kind-up
+          make kind-load IMAGE_PREFIX="${{ steps.image.outputs.prefix }}" TAG="${{ steps.image.outputs.tag }}"
+      - name: Deploy release with Helm
+        id: deploy
+        shell: bash
+        run: |
+          previous="$(helm history k8s-ops-platform -n k8s-ops-platform 2>/dev/null | awk 'NR > 1 && $1 ~ /^[0-9]+$/ {revision=$1} END {print revision}')"
+          echo "previous=${previous:-0}" >> "$GITHUB_OUTPUT"
+          make deploy IMAGE_PREFIX="${{ steps.image.outputs.prefix }}" TAG="${{ steps.image.outputs.tag }}"
+      - name: Verify rollout, behavior, and E2E
+        env:
+          SKIP_DEPLOY: "true"
+        run: |
+          kubectl -n k8s-ops-platform rollout status deployment/diagnosis-agent --timeout=180s
+          kubectl -n k8s-ops-platform rollout status deployment/action-controller --timeout=180s
+          make smoke-test
+          make e2e
+      - name: Roll back failed test release
+        if: failure() && steps.deploy.outcome != 'skipped'
+        run: make rollback PREVIOUS_REVISION="${{ steps.deploy.outputs.previous }}"
+
+  production:
+    name: Production deployment (manual only)
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'production'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+      - uses: azure/setup-helm@v4
+      - name: Configure cluster credentials
+        env:
+          KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG }}
+        run: |
+          test -n "$KUBECONFIG_CONTENT"
+          printf '%s' "$KUBECONFIG_CONTENT" > "$RUNNER_TEMP/kubeconfig"
+          chmod 600 "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+      - name: Deploy approved image
+        id: deploy
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+        run: |
+          [[ "$IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]
+          repository="${GITHUB_REPOSITORY,,}"
+          previous="$(helm history k8s-ops-platform -n k8s-ops-platform 2>/dev/null | awk 'NR > 1 && $1 ~ /^[0-9]+$/ {revision=$1} END {print revision}')"
+          echo "previous=${previous:-0}" >> "$GITHUB_OUTPUT"
+          make deploy IMAGE_PREFIX="ghcr.io/${repository}" TAG="$IMAGE_TAG"
+      - name: Verify production rollout and smoke test
+        run: |
+          kubectl -n k8s-ops-platform rollout status deployment/diagnosis-agent --timeout=180s
+          kubectl -n k8s-ops-platform rollout status deployment/action-controller --timeout=180s
+          make smoke-test
+      - name: Roll back failed approved release
+        if: failure() && steps.deploy.outcome != 'skipped'
+        run: make rollback PREVIOUS_REVISION="${{ steps.deploy.outputs.previous }}"

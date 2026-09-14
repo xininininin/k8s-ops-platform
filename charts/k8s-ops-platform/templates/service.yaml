@@ -1,0 +1,23 @@
+{{- if .Values.observability.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: diagnosis-agent
+  namespace: {{ .Values.namespace }}
+  labels: {app.kubernetes.io/name: diagnosis-agent}
+spec:
+  selector: {app.kubernetes.io/name: diagnosis-agent}
+  ports:
+    - {name: metrics, port: 8080, targetPort: metrics}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: action-controller
+  namespace: {{ .Values.namespace }}
+  labels: {app.kubernetes.io/name: action-controller}
+spec:
+  selector: {app.kubernetes.io/name: action-controller}
+  ports:
+    - {name: metrics, port: 8080, targetPort: metrics}
+{{- end }}

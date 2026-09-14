@@ -1,0 +1,12 @@
+apiVersion: ops.example.io/v1alpha1
+kind: Action
+metadata:
+  name: restart-example-pod
+  namespace: default
+spec:
+  actionType: PodRestart
+  target: {kind: Pod, namespace: default, name: replace-me}
+  reason: operator-requested restart
+  timeoutSeconds: 300
+  requestedBy: example-user
+  triggerSource: Manual

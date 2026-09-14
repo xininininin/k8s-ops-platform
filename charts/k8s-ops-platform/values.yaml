@@ -1,0 +1,49 @@
+namespace: k8s-ops-platform
+replicaCount: 1
+
+image:
+  tag: dev
+  pullPolicy: IfNotPresent
+
+agent:
+  replicaCount: null
+  image:
+    repository: k8s-ops-platform-agent
+  args:
+    - --metrics-bind-address=:8080
+    - --auto-pod-restart=false
+    - --auto-deployment-restart=false
+  resources:
+    requests: {cpu: 20m, memory: 48Mi}
+    limits: {cpu: 300m, memory: 192Mi}
+
+controller:
+  replicaCount: null
+  image:
+    repository: k8s-ops-platform-controller
+  args:
+    - --metrics-bind-address=:8080
+  resources:
+    requests: {cpu: 20m, memory: 48Mi}
+    limits: {cpu: 300m, memory: 192Mi}
+
+serviceAccount:
+  create: true
+  agentName: diagnosis-agent
+  controllerName: action-controller
+
+rbac:
+  create: true
+
+observability:
+  enabled: true
+  metricsPort: 8080
+  prometheusAnnotations: true
+  # ServiceMonitor 需要集群已安装 Prometheus Operator（monitoring.coreos.com CRD）。
+  # 默认关闭，避免在没有该 CRD 的集群上安装失败。
+  serviceMonitor:
+    enabled: false
+    interval: 15s
+    # Prometheus Operator 通过 spec.serviceMonitorSelector 选择 ServiceMonitor；
+    # kube-prometheus-stack 默认要求 release=monitoring，请在启用时按集群实际值覆盖。
+    labels: {}

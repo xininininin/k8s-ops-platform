@@ -1,0 +1,15 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crashloop-example
+  namespace: default
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: crashloop-example}}
+  template:
+    metadata: {labels: {app: crashloop-example}}
+    spec:
+      containers:
+        - name: crash
+          image: busybox:1.36
+          command: ["sh", "-c", "echo intentional-crash; exit 1"]

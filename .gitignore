@@ -1,0 +1,8 @@
+/agent
+/action-controller
+/bin/
+*.log
+test/e2e/action-phases.log
+test/e2e/port-forward.log
+test/e2e/controller-port-forward.log
+.DS_Store

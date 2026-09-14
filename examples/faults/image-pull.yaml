@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: image-pull-example
+  namespace: default
+spec:
+  containers:
+    - name: bad-image
+      image: invalid.example.invalid/not-found:v1

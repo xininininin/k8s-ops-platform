@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8s-ops-platform-grafana-dashboard
+  namespace: k8s-ops-platform
+  labels: {grafana_dashboard: "1"}
+data:
+  k8s-ops-platform.json: |
+    {"title":"K8s Ops Platform","uid":"k8s-ops-v1","schemaVersion":39,"panels":[
+      {"type":"stat","title":"Active Diagnoses","targets":[{"expr":"sum(k8s_ops_active_diagnosis)"}],"gridPos":{"x":0,"y":0,"w":6,"h":4}},
+      {"type":"timeseries","title":"Diagnoses by Reason","targets":[{"expr":"sum by (reason) (k8s_ops_active_diagnosis)","legendFormat":"{{reason}}"}],"gridPos":{"x":6,"y":0,"w":10,"h":8}},
+      {"type":"stat","title":"Actions","targets":[{"expr":"sum(k8s_ops_action_total)"}],"gridPos":{"x":16,"y":0,"w":4,"h":4}},
+      {"type":"stat","title":"Failed Actions","targets":[{"expr":"sum(k8s_ops_action_failed_total)"}],"gridPos":{"x":20,"y":0,"w":4,"h":4}},
+      {"type":"timeseries","title":"Action Duration p95","targets":[{"expr":"histogram_quantile(0.95, sum by (le, action_type) (rate(k8s_ops_action_duration_seconds_bucket[5m])))","legendFormat":"{{action_type}}"}],"gridPos":{"x":16,"y":4,"w":8,"h":4}}
+    ]}

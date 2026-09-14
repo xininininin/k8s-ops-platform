@@ -1,0 +1,8 @@
+.git
+config
+deploy
+examples
+scripts
+test
+*.md
+Makefile

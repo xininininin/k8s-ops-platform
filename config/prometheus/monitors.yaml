@@ -1,0 +1,13 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: k8s-ops-platform
+  namespace: k8s-ops-platform
+spec:
+  selector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [diagnosis-agent, action-controller]
+  namespaceSelector: {matchNames: [k8s-ops-platform]}
+  endpoints: [{port: metrics, interval: 15s}]

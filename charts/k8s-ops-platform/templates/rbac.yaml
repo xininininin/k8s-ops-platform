@@ -1,0 +1,74 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-diagnosis-agent
+  labels:
+    {{- include "k8s-ops-platform.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["ops.example.io"]
+    resources: ["actions"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-diagnosis-agent
+  labels:
+    {{- include "k8s-ops-platform.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-diagnosis-agent
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "k8s-ops-platform.agentServiceAccount" . }}
+    namespace: {{ .Values.namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-action-controller
+  labels:
+    {{- include "k8s-ops-platform.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["ops.example.io"]
+    resources: ["actions"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["ops.example.io"]
+    resources: ["actions/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-action-controller
+  labels:
+    {{- include "k8s-ops-platform.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-action-controller
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "k8s-ops-platform.controllerServiceAccount" . }}
+    namespace: {{ .Values.namespace }}
+{{- end }}

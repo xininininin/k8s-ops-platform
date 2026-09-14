@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: action-controller
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: action-controller
+    {{- include "k8s-ops-platform.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.replicaCount | default .Values.replicaCount }}
+  selector:
+    matchLabels: {app.kubernetes.io/name: action-controller}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: action-controller
+        app.kubernetes.io/part-of: k8s-ops-platform
+      {{- if and .Values.observability.enabled .Values.observability.prometheusAnnotations }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.observability.metricsPort | quote }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "k8s-ops-platform.controllerServiceAccount" . }}
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: controller
+          image: "{{ .Values.controller.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            {{- toYaml .Values.controller.args | nindent 12 }}
+          ports:
+            - {name: metrics, containerPort: 8080}
+            - {name: health, containerPort: 8081}
+          readinessProbe: {tcpSocket: {port: health}, initialDelaySeconds: 2, periodSeconds: 5}
+          livenessProbe: {tcpSocket: {port: health}, initialDelaySeconds: 5, periodSeconds: 10}
+          securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: ["ALL"]}, readOnlyRootFilesystem: true}
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
