@@ -11,7 +11,7 @@ fail() { echo "SMOKE FAILED: $*" >&2; exit 1; }
 pass() { echo "SMOKE PASSED: $*"; }
 cleanup() {
   for pid in "${port_forward_pids[@]:-}"; do kill "$pid" 2>/dev/null || true; done
-  kubectl -n default delete action "$smoke_name" deployment "$smoke_name" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl -n default delete "action/${smoke_name}" "deployment/${smoke_name}" --ignore-not-found --wait=false >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
